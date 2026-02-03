@@ -4,7 +4,7 @@ import { PieChart, Pie, Cell, Tooltip as ReTooltip, ResponsiveContainer, BarChar
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// --- Internal Components to ensure build stability ---
+// --- Internal Components to ensure build stability and prevent 404s ---
 
 interface SummaryCardProps {
   label: string;
@@ -94,6 +94,16 @@ const InputField: React.FC<InputFieldProps> = ({ label, value, onChange, type = 
   );
 };
 
+// --- Power Options ---
+const POWER_OPTIONS = [
+  { id: '16s', name: '16amp single phase', price: 431.62 },
+  { id: '32s', name: '32amp single phase', price: 821.45 },
+  { id: '64s', name: '64amp single phase', price: 1502.02 },
+  { id: '32t', name: '32amp three phase', price: 2117.71 },
+  { id: '64t', name: '64amp three phase', price: 3160.96 },
+  { id: '125t', name: '125amp three phase', price: 4422.67 },
+];
+
 // --- Main Application ---
 
 const INITIAL_CONFIG = {
@@ -103,14 +113,16 @@ const INITIAL_CONFIG = {
     { id: '2', name: 'Premium Item', price: 17.50, unitsSold: 750, unitRatio: 750, costPerPortion: 5.00 }
   ],
   totalVisitors: 60000,
+  commissionRate: 25,
   mileage: 150,
   costPerMile: 0.45,
   vanRental: 350,
-  staffCount: 8,
+  staffCount: 5,
   staffDayRate: 150,
   eventDays: 3,
   accommodationCost: 0,
   fuelCost: 150,
+  selectedPowerIds: [] as string[],
   potentialLeads: 100,
   leadValue: 25,
   brandMediaValue: 1250,
@@ -137,10 +149,23 @@ const App: React.FC = () => {
     const totalIngredientsCost = config.menuItems.reduce((acc, item) => acc + (item.costPerPortion * item.unitsSold), 0);
     const totalTransactions = config.menuItems.reduce((acc, item) => acc + item.unitsSold, 0);
     const penetrationRate = (totalTransactions / config.totalVisitors) * 100;
-    const pitchFee = directRevenue * 0.30;
+    
+    // Pitch Fee using editable commission rate
+    const pitchFee = directRevenue * (config.commissionRate / 100);
+    
+    // Staffing
     const staffTotal = (config.staffCount || 0) * (config.staffDayRate || 0) * (config.eventDays || 0);
+    
+    // Logistics
     const logisticsTotal = ((config.mileage || 0) * (config.costPerMile || 0)) + (config.vanRental || 0);
-    const totalOperatingCosts = staffTotal + logisticsTotal + pitchFee + (config.accommodationCost || 0) + totalIngredientsCost + (config.fuelCost || 0);
+    
+    // Power Costs
+    const powerCosts = config.selectedPowerIds.reduce((sum, id) => {
+      const option = POWER_OPTIONS.find(opt => opt.id === id);
+      return sum + (option?.price || 0);
+    }, 0);
+
+    const totalOperatingCosts = staffTotal + logisticsTotal + pitchFee + (config.accommodationCost || 0) + totalIngredientsCost + (config.fuelCost || 0) + powerCosts;
     const totalPipelineValue = (config.potentialLeads || 0) * (config.leadValue || 0);
     const netProfit = directRevenue - totalOperatingCosts;
     const totalAssetValue = netProfit + totalPipelineValue + (config.brandMediaValue || 0);
@@ -151,6 +176,7 @@ const App: React.FC = () => {
       totalTransactions,
       penetrationRate,
       pitchFee,
+      powerCosts,
       totalIngredientsCost,
       totalOperatingCosts,
       netProfit,
@@ -162,11 +188,11 @@ const App: React.FC = () => {
         value: item.price * item.unitsSold
       })),
       costBreakdown: [
-        { name: 'Pitch Fee (30%)', value: pitchFee },
+        { name: `Pitch Fee (${config.commissionRate}%)`, value: pitchFee },
         { name: 'Staffing', value: staffTotal },
         { name: 'Ingredients', value: totalIngredientsCost },
         { name: 'Logistics/Van', value: logisticsTotal + (config.accommodationCost || 0) },
-        { name: 'Cooking Fuel/Gas', value: config.fuelCost || 0 },
+        { name: 'Power/Fuel', value: (config.fuelCost || 0) + powerCosts },
       ]
     };
   }, [config]);
@@ -201,6 +227,18 @@ const App: React.FC = () => {
 
   const removeMenuItem = (id: string) => {
     setConfig(prev => ({ ...prev, menuItems: prev.menuItems.filter(item => item.id !== id) }));
+  };
+
+  const togglePower = (id: string) => {
+    setConfig(prev => {
+      const isSelected = prev.selectedPowerIds.includes(id);
+      return {
+        ...prev,
+        selectedPowerIds: isSelected 
+          ? prev.selectedPowerIds.filter(pid => pid !== id)
+          : [...prev.selectedPowerIds, id]
+      };
+    });
   };
 
   const handleDownloadPDF = async () => {
@@ -250,7 +288,7 @@ const App: React.FC = () => {
           <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
             <h2 className="text-sm uppercase tracking-widest font-bold text-orange-500 mb-6 flex items-center gap-2">
               <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
-              Event Visitors
+              Event Setup
             </h2>
             <div className="space-y-4">
               <div className="flex justify-between items-center text-sm mb-2">
@@ -268,7 +306,19 @@ const App: React.FC = () => {
                 <span>60k</span>
                 <span>90k</span>
               </div>
-              <p className="text-[10px] text-zinc-500 text-center italic mt-2">Units sold scale automatically with visitor count</p>
+              
+              <div className="mt-6">
+                <InputField 
+                  label="Revenue Commission (%)" 
+                  value={config.commissionRate} 
+                  onChange={(v) => setConfig({...config, commissionRate: v})} 
+                  type="percent"
+                  tooltip="The percentage of direct sales revenue taken as a pitch fee."
+                />
+                <p className="text-[11px] text-zinc-500 mt-2 leading-relaxed">
+                  A £2000 deposit will be needed to confirm your place. This is credited at the end of the event.
+                </p>
+              </div>
             </div>
           </section>
 
@@ -304,10 +354,13 @@ const App: React.FC = () => {
           </section>
 
           <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
-            <h2 className="text-sm uppercase tracking-widest font-bold text-rose-500 mb-6 flex items-center gap-2">
+            <h2 className="text-sm uppercase tracking-widest font-bold text-rose-500 flex items-center gap-2">
               <span className="w-2 h-2 bg-rose-500 rounded-full"></span>
               Operations & Logistics
             </h2>
+            <p className="text-[11px] text-zinc-500 uppercase tracking-wider font-bold -mt-4 mb-6">
+              Waste, Water and Camping Pitch Included in Fee
+            </p>
             <div className="space-y-4">
               <InputField label="Staff Count" value={config.staffCount} onChange={(v) => setConfig({...config, staffCount: v})} />
               <InputField label="Staff Day Rate" value={config.staffDayRate} onChange={(v) => setConfig({...config, staffDayRate: v})} type="currency" />
@@ -317,6 +370,35 @@ const App: React.FC = () => {
                 <InputField label="Cost/Mile" value={config.costPerMile} onChange={(v) => setConfig({...config, costPerMile: v})} step={0.01} />
               </div>
               <InputField label="Van Rental" value={config.vanRental} onChange={(v) => setConfig({...config, vanRental: v})} type="currency" />
+              
+              <div className="mt-6 border-t border-zinc-800 pt-6">
+                <label className="text-sm font-bold text-zinc-400 block mb-3 uppercase tracking-wider">Power Recharge Options</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {POWER_OPTIONS.map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => togglePower(opt.id)}
+                      className={`flex justify-between items-center p-3 rounded-xl border transition-all text-left group ${
+                        config.selectedPowerIds.includes(opt.id)
+                          ? 'bg-orange-500/20 border-orange-500 text-orange-400'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <span className={`text-xs font-bold uppercase ${config.selectedPowerIds.includes(opt.id) ? 'text-orange-500' : 'text-zinc-400'}`}>
+                          {opt.name}
+                        </span>
+                        <span className="text-[10px] mono">£{opt.price.toLocaleString()}</span>
+                      </div>
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                        config.selectedPowerIds.includes(opt.id) ? 'bg-orange-500 border-orange-500' : 'border-zinc-700'
+                      }`}>
+                        {config.selectedPowerIds.includes(opt.id) && <span className="text-white text-[10px]">✓</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </section>
         </aside>
@@ -324,7 +406,7 @@ const App: React.FC = () => {
         <main className="lg:col-span-8 space-y-8 print:col-span-12">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <SummaryCard label="Direct Revenue" value={`£${analysis.directRevenue.toLocaleString()}`} color="emerald" trend="up" />
-            <SummaryCard label="Pitch Fee (30%)" value={`£${analysis.pitchFee.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} color="rose" />
+            <SummaryCard label="Pitch Fee" value={`£${analysis.pitchFee.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} color="rose" />
             <SummaryCard label="Net Profit" value={`£${analysis.netProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} color="blue" />
             <SummaryCard label="Trader ROI" value={`${analysis.roiPercentage.toFixed(1)}%`} color="zinc" />
           </div>
@@ -398,12 +480,16 @@ const App: React.FC = () => {
                 <span className="font-bold text-emerald-400">£{analysis.directRevenue.toLocaleString()}</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-zinc-800 text-zinc-400">
-                <span>Pitch Fee (30% Revenue Share)</span>
+                <span>Pitch Fee ({config.commissionRate}% Commission)</span>
                 <span className="text-rose-500">-£{analysis.pitchFee.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-zinc-800 text-zinc-400">
-                <span>Total Operating Expenses</span>
-                <span className="text-rose-500">-£{(analysis.totalOperatingCosts - analysis.pitchFee).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                <span>Power Recharge Costs ({config.selectedPowerIds.length} Selected)</span>
+                <span className="text-rose-500">-£{analysis.powerCosts.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-zinc-800 text-zinc-400">
+                <span>Other Operating Expenses (Staff, Logistics, Ingredients)</span>
+                <span className="text-rose-500">-£{(analysis.totalOperatingCosts - analysis.pitchFee - analysis.powerCosts).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
               </div>
               <div className="flex justify-between items-center py-4 text-2xl border-b border-zinc-800">
                 <span className="font-bold text-zinc-100">Event Net Profit</span>

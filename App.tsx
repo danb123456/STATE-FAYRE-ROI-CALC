@@ -358,7 +358,7 @@ const App: React.FC = () => {
               <span className="w-2 h-2 bg-rose-500 rounded-full"></span>
               Operations & Logistics
             </h2>
-            <p className="text-[11px] text-zinc-500 uppercase tracking-wider font-bold -mt-4 mb-6">
+            <p className="text-[11px] text-zinc-500 uppercase tracking-wider font-bold mt-1 mb-6">
               Waste, Water and Camping Pitch Included in Fee
             </p>
             <div className="space-y-4">
